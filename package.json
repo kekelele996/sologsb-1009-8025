@@ -7,7 +7,8 @@
     "dev": "astro dev",
     "build": "astro check && astro build",
     "check": "astro check",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "test": "npm run build && node smoke.test.mjs"
   },
   "dependencies": {
     "@shoelace-style/shoelace": "^2.20.1",
@@ -15,6 +16,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.6",
+    "jsdom": "^29.1.1",
     "typescript": "^5.9.3"
   }
 }
