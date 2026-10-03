@@ -170,3 +170,57 @@ sl-textarea::part(textarea) { line-height: 1.65; }
   .workspace { grid-template-columns: 245px minmax(520px, 1fr) 370px; }
   .online-pill { display: none; }
 }
+
+/* 总校 / 成员校协作 */
+.role-switch { display: flex; gap: 2px; background: rgba(255,255,255,.12); border-radius: 9px; padding: 3px; }
+.role-switch button { border: 0; background: transparent; color: #cfe0d8; padding: 6px 13px; border-radius: 7px; cursor: pointer; font-size: 12px; }
+.role-switch button.active { background: #fff; color: #1d4a3c; font-weight: 750; }
+.sync-info { color: #3d5c4e; background: #e6efea; padding: 4px 8px; border-radius: 99px; font-size: 10px; font-weight: 700; }
+.origin-tag { display: inline-block; padding: 1px 5px; border-radius: 4px; background: #e3ecef; color: #33617f; font-size: 8px; font-weight: 800; margin-right: 4px; vertical-align: 1px; }
+.origin-tag.member { background: #fdeecd; color: #8a5a0c; }
+.origin-tag.dual { background: #f8dcd8; color: #a4322a; }
+
+.dual-card { border-color: #e4b7b0; background: #fffaf8; }
+.dual-hint { margin: 0 0 10px; color: #7a6a5e; font-size: 10px; }
+.dual-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dual-col { display: grid; gap: 7px; align-content: start; border: 1px solid #e7d9c8; border-radius: 9px; padding: 11px; background: #fffdf7; }
+.dual-col.central { border-color: #c9dbe8; background: #f7fbff; }
+.dual-col header { display: flex; justify-content: space-between; color: #6b7a72; font-size: 10px; }
+.dual-col p { margin: 0; font-size: 11px; line-height: 1.65; }
+.dual-col small { color: #7c877f; font-size: 9px; }
+.dual-resolved { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: #2c7255; font-size: 11px; }
+.reason-warning { margin-top: 4px; padding: 7px 9px; border: 1px solid #eed9a8; border-radius: 7px; background: #fffaf0; color: #8a5f10; font-size: 10px; }
+
+.sync-layout h3 { margin: 14px 0 8px; font-size: 13px; }
+.sync-summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.sync-stat { padding: 5px 10px; border-radius: 99px; background: #e6efea; color: #3d5c4e; font-size: 10px; font-weight: 700; }
+.sync-toolbar { padding: 4px 0 8px; }
+.batch-card { border: 1px solid #dfe5e1; border-radius: 10px; padding: 11px; margin-bottom: 9px; background: #fff; }
+.batch-card.done { background: #f7faf8; }
+.batch-card header { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
+.batch-card header span { color: #7a857f; font-size: 9px; }
+.batch-hint { margin: 7px 0; color: #6c7871; font-size: 10px; line-height: 1.6; }
+.batch-actions { display: flex; gap: 7px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.wait-note { color: #8b9590; font-size: 9px; }
+.op-list { display: grid; gap: 4px; margin: 8px 0; }
+.op-row { display: grid; grid-template-columns: 76px 1fr auto; gap: 8px; align-items: center; padding: 5px 7px; border-radius: 6px; background: #f6f8f6; font-size: 10px; }
+.op-row .chip { padding: 2px 6px; border-radius: 99px; font-size: 8px; font-weight: 800; text-align: center; }
+.op-row.merged .chip { color: #23704e; background: #dff0e6; }
+.op-row.conflict .chip { color: #9c3c10; background: #fde7d3; }
+.op-row.failed .chip { color: #a12c24; background: #fadcd9; }
+.op-row.pending .chip { color: #5d6a64; background: #e6eae8; }
+.op-row small { color: #7c877f; font-size: 9px; }
+
+.migration-report { border: 1px solid #ead9ac; border-radius: 10px; padding: 11px; margin-bottom: 12px; background: #fffaf0; font-size: 10px; }
+.migration-report header { display: flex; justify-content: space-between; font-size: 11px; }
+.migration-report p { margin: 7px 0; }
+.migration-report ul { margin: 7px 0; padding-left: 16px; display: grid; gap: 3px; color: #6d6046; }
+.blocked-list { margin: 0; padding-left: 16px; display: grid; gap: 4px; font-size: 10px; color: #8a4a42; }
+.central-view-list { max-height: 320px; overflow-y: auto; display: grid; gap: 7px; margin-bottom: 10px; }
+.central-view-block { border: 1px solid #e2e7e3; border-radius: 8px; padding: 8px 10px; background: #fafbfa; }
+.central-view-block b { color: #5d6a64; font-size: 9px; }
+.central-view-block p { margin: 4px 0 0; font-size: 11px; line-height: 1.6; }
+.view-subhead { margin: 10px 0 6px; font-size: 12px; }
+.term-view { margin: 0; padding-left: 16px; font-size: 11px; display: grid; gap: 4px; }
+.readonly-term { border: 1px solid #e2e7e3; border-radius: 8px; padding: 8px 10px; font-size: 11px; background: #fafbfa; }
+.readonly-term small { color: #78837e; }

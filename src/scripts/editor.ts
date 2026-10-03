@@ -1,425 +1,105 @@
 import "@shoelace-style/shoelace/dist/shoelace.js";
+import {
+  analyze,
+  blockRole,
+  download,
+  escapeHtml,
+  parseImportedChapter,
+  severityLabel,
+  simplifyText,
+  statusLabel,
+  uid,
+  type ChapterProject,
+  type ContentBlock,
+  type VersionSnapshot,
+} from "./model";
+import {
+  effectiveText,
+  glossaryChanged,
+  isDualVersion,
+  isPendingChoice,
+  loadStores,
+  opStatusLabel,
+  pendingBatches,
+  pendingOps,
+  persistStores,
+  publishBatch,
+  receiveBatch,
+  receiptOf,
+  type BatchReceipt,
+  type CentralStore,
+  type CollabBlock,
+  type MemberProject,
+  type MemberStore,
+  type MigrationReport,
+  type OpReceipt,
+  type Role,
+  type SyncBatch,
+} from "./collab";
 
-type BlockType = "heading" | "paragraph" | "image" | "link";
-type ReviewStatus = "pending" | "approved" | "needs-work";
-type Severity = "error" | "warning" | "info";
+const stores = loadStores();
+const central: CentralStore = stores.central;
+const member: MemberStore = stores.member;
 
-interface CommentReply {
-  id: string;
-  author: string;
-  body: string;
-  createdAt: string;
-}
-
-interface CommentItem {
-  id: string;
-  author: string;
-  body: string;
-  createdAt: string;
-  resolved: boolean;
-  replies: CommentReply[];
-}
-
-interface ContentBlock {
-  id: string;
-  type: BlockType;
-  text: string;
-  accessibleText: string;
-  headingLevel?: number;
-  imageSrc?: string;
-  imageAlt?: string;
-  linkHref?: string;
-  changeReason: string;
-  reviewStatus: ReviewStatus;
-  comments: CommentItem[];
-}
-
-interface GlossaryTerm {
-  id: string;
-  source: string;
-  preferred: string;
-  note: string;
-}
-
-interface VersionSnapshot {
-  id: string;
-  label: string;
-  createdAt: string;
-  blocks: ContentBlock[];
-  glossary: GlossaryTerm[];
-}
-
-interface ChapterProject {
-  id: string;
-  title: string;
-  subject: string;
-  grade: string;
-  blocks: ContentBlock[];
-  glossary: GlossaryTerm[];
-  versions: VersionSnapshot[];
-  updatedAt: string;
-}
-
-interface AccessibilityIssue {
-  id: string;
-  blockId: string;
-  type: "heading" | "link" | "image" | "glossary" | "sentence";
-  severity: Severity;
-  title: string;
-  detail: string;
-  suggestion: string;
-}
-
-const STORAGE_KEY = "sologsb-1009-accessible-textbook-v1";
-const uid = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-
-function createSeedProject(): ChapterProject {
-  const blocks: ContentBlock[] = [
-    {
-      id: "block-h1",
-      type: "heading",
-      headingLevel: 1,
-      text: "第三章 水循环与城市",
-      accessibleText: "第三章 水循环与城市",
-      changeReason: "",
-      reviewStatus: "approved",
-      comments: [],
-    },
-    {
-      id: "block-p1",
-      type: "paragraph",
-      text: "城市中的水并非取之不尽，由于其会通过蒸发、降水以及地表径流等若干复杂过程在自然界中持续循环，因此理解这些过程对于建设具有韧性的城市具有十分重要的意义。",
-      accessibleText: "城市里的水会不断循环。它经过蒸发、降水并沿地面流动。了解这些过程，可以帮助我们建设更能适应变化的城市。",
-      changeReason: "拆分长句，把抽象表述改为更直接的说明。",
-      reviewStatus: "pending",
-      comments: [],
-    },
-    {
-      id: "block-h2",
-      type: "heading",
-      headingLevel: 2,
-      text: "一、水从哪里来",
-      accessibleText: "一、水从哪里来",
-      changeReason: "保留原章节结构。",
-      reviewStatus: "approved",
-      comments: [],
-    },
-    {
-      id: "block-img",
-      type: "image",
-      text: "图 3-1 城市水循环示意",
-      imageSrc: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='420'%3E%3Crect width='800' height='420' fill='%23dcecf3'/%3E%3Ccircle cx='650' cy='85' r='45' fill='%23f4c95d'/%3E%3Cpath d='M0 300 Q180 240 340 300 T800 280 V420 H0Z' fill='%2389b7d0'/%3E%3Cpath d='M130 285 Q220 170 330 285' fill='none' stroke='%233a7c9e' stroke-width='12'/%3E%3C/svg%3E",
-      imageAlt: "",
-      accessibleText: "",
-      changeReason: "",
-      reviewStatus: "needs-work",
-      comments: [],
-    },
-    {
-      id: "block-p2",
-      type: "paragraph",
-      text: "当太阳照射到水面时，水会受热变成水蒸气升到空中。水蒸气冷却后形成云，再以雨或雪的形式落回地面。",
-      accessibleText: "太阳照在水面上，水会变成水蒸气升到空中。水蒸气冷却后变成云，最后以雨或雪落回地面。",
-      changeReason: "使用较短句子，并明确每个步骤的先后顺序。",
-      reviewStatus: "approved",
-      comments: [],
-    },
-    {
-      id: "block-link",
-      type: "link",
-      text: "点击这里",
-      linkHref: "/resources/water-cycle",
-      accessibleText: "打开水循环互动实验",
-      changeReason: "改为说明链接目标的独立文案。",
-      reviewStatus: "pending",
-      comments: [],
-    },
-    {
-      id: "block-h3",
-      type: "heading",
-      headingLevel: 3,
-      text: "雨水花园怎样工作",
-      accessibleText: "雨水花园怎样工作",
-      changeReason: "",
-      reviewStatus: "approved",
-      comments: [],
-    },
-    {
-      id: "block-p3",
-      type: "paragraph",
-      text: "雨水花园利用土壤和植物的共同作用暂时储存雨水，同时通过下渗补给地下水，并在降雨较集中时减轻城市排水管道所承受的压力。",
-      accessibleText: "雨水花园用土壤和植物暂时存住雨水。雨水还会慢慢渗入地下，补充地下水。雨很大时，它可以减轻排水管的压力。",
-      changeReason: "把并列成分拆成短句，减少专业术语密度。",
-      reviewStatus: "pending",
-      comments: [],
-    },
-  ];
-
-  return {
-    id: "accessible-textbook-1009",
-    title: "科学（五年级下册）·无障碍改写稿",
-    subject: "科学",
-    grade: "五年级",
-    blocks,
-    glossary: [
-      { id: "term-1", source: "水循环", preferred: "水循环", note: "全书统一使用" },
-      { id: "term-2", source: "地表径流", preferred: "沿地面流动的水", note: "首次出现时使用通俗解释" },
-      { id: "term-3", source: "下渗", preferred: "渗入地下", note: "避免单独使用专业词" },
-    ],
-    versions: [],
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function parseImportedChapter(input: string): ContentBlock[] {
-  const blocks: ContentBlock[] = [];
-  const lines = input.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  for (const line of lines) {
-    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
-    if (heading) {
-      blocks.push(blankBlock("heading", heading[2], { headingLevel: heading[1].length }));
-      continue;
-    }
-    const image = /^!\[([^\]]*)\]\(([^)]+)\)(?:\s+(.+))?$/.exec(line);
-    if (image) {
-      blocks.push(blankBlock("image", image[3] || "未命名图片", { imageSrc: image[2], imageAlt: image[1] }));
-      continue;
-    }
-    const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(line);
-    if (link) {
-      blocks.push(blankBlock("link", link[1], { linkHref: link[2] }));
-      continue;
-    }
-    blocks.push(blankBlock("paragraph", line));
-  }
-  return blocks.length ? blocks : [blankBlock("paragraph", input.trim() || "请输入章节内容")];
-}
-
-function blankBlock(type: BlockType, text: string, extra: Partial<ContentBlock> = {}): ContentBlock {
-  return {
-    id: uid("block"),
-    type,
-    text,
-    accessibleText: type === "image" ? extra.imageAlt ?? "" : text,
-    changeReason: "",
-    reviewStatus: "pending",
-    comments: [],
-    ...extra,
-  };
-}
-
-function sentenceLength(text: string) {
-  const normalized = text.replace(/\s+/g, "");
-  return /[A-Za-z]/.test(text) ? text.trim().split(/\s+/).length : normalized.length;
-}
-
-function analyze(project: ChapterProject): AccessibilityIssue[] {
-  const issues: AccessibilityIssue[] = [];
-  let lastHeading = 0;
-  for (const block of project.blocks) {
-    if (block.type === "heading") {
-      const level = block.headingLevel ?? 2;
-      if (lastHeading && level > lastHeading + 1) {
-        issues.push({
-          id: `heading-${block.id}`,
-          blockId: block.id,
-          type: "heading",
-          severity: "error",
-          title: "标题层级跳跃",
-          detail: `从 H${lastHeading} 直接到 H${level}，读屏用户会失去清晰的章节结构。`,
-          suggestion: `改为 H${lastHeading + 1}，或补上中间的上级标题。`,
-        });
-      }
-      lastHeading = level;
-    }
-    if (block.type === "image" && !(block.imageAlt ?? block.accessibleText).trim()) {
-      issues.push({
-        id: `image-${block.id}`,
-        blockId: block.id,
-        type: "image",
-        severity: "error",
-        title: "图片缺少替代文本",
-        detail: "视觉用户能看到的图表信息，读屏用户目前无法获得。",
-        suggestion: "说明图中主体、变化和结论；纯装饰图片应标记为空替代文本。",
-      });
-    }
-    if (block.type === "link") {
-      const label = block.accessibleText || block.text;
-      if (/^(点击这里|这里|链接|更多|here|click here|read more)$/i.test(label.trim())) {
-        issues.push({
-          id: `link-${block.id}`,
-          blockId: block.id,
-          type: "link",
-          severity: "error",
-          title: "链接文案缺少目的",
-          detail: `“${label}”单独朗读时无法说明会前往哪里。`,
-          suggestion: "改成“打开水循环互动实验”等可独立理解的文案。",
-        });
-      }
-    }
-    const text = block.type === "image" ? block.text : block.text;
-    const sentences = text.split(/(?<=[。！？!?])\s*/).filter(Boolean);
-    for (const [index, sentence] of sentences.entries()) {
-      if (sentenceLength(sentence) > (/[A-Za-z]/.test(sentence) ? 28 : 42)) {
-        issues.push({
-          id: `sentence-${block.id}-${index}`,
-          blockId: block.id,
-          type: "sentence",
-          severity: "warning",
-          title: "句子过长",
-          detail: `该句约 ${sentenceLength(sentence)} ${/[A-Za-z]/.test(sentence) ? "个词" : "个字"}，一次理解的信息较多。`,
-          suggestion: "按动作或因果关系拆成 2—3 个短句。",
-        });
-      }
-    }
-    const source = `${block.text} ${block.accessibleText}`;
-    for (const term of project.glossary) {
-      if (source.includes(term.source) && block.accessibleText && !block.accessibleText.includes(term.preferred)) {
-        issues.push({
-          id: `term-${block.id}-${term.id}`,
-          blockId: block.id,
-          type: "glossary",
-          severity: "info",
-          title: `术语“${term.source}”尚未统一`,
-          detail: `全书建议表述为“${term.preferred}”。${term.note}`,
-          suggestion: `将无障碍文本调整为“${term.preferred}”。`,
-        });
-      }
-    }
-  }
-  return issues;
-}
-
-function simplifyText(input: string, glossary: GlossaryTerm[]) {
-  let result = input
-    .replaceAll("由于其", "因为")
-    .replaceAll("因此", "所以")
-    .replaceAll("具有十分重要的意义", "很重要")
-    .replaceAll("利用", "使用")
-    .replaceAll("共同作用", "一起作用")
-    .replaceAll("暂时储存", "暂时存住")
-    .replaceAll("所承受的压力", "受到的压力")
-    .replace(/([^。！？]{38,}?)[，、]([^。！？]{12,}?[。！？])/g, "$1。$2");
-  for (const term of glossary) {
-    if (result.includes(term.source)) result = result.replaceAll(term.source, term.preferred);
-  }
-  result = result
-    .split(/(?<=[。！？!?])\s*/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean)
-    .join("\n");
-  return result;
-}
-
-function blockRole(block: ContentBlock) {
-  if (block.type === "heading") return `H${block.headingLevel ?? 2} 标题`;
-  if (block.type === "image") return "图片 / 替代文本";
-  if (block.type === "link") return "链接";
-  return "正文段落";
-}
-
-function statusLabel(status: ReviewStatus) {
-  if (status === "approved") return "已通过";
-  if (status === "needs-work") return "需修改";
-  return "待审核";
-}
-
-function severityLabel(severity: Severity) {
-  if (severity === "error") return "必须修复";
-  if (severity === "warning") return "建议优化";
-  return "一致性提醒";
-}
-
-function exportHtml(project: ChapterProject) {
-  const body = project.blocks.map((block) => {
-    if (block.type === "heading") {
-      const level = Math.min(6, Math.max(1, block.headingLevel ?? 2));
-      return `<h${level}>${escapeHtml(block.accessibleText || block.text)}</h${level}>`;
-    }
-    if (block.type === "image") {
-      return `<figure><img src="${escapeHtml(block.imageSrc ?? "")}" alt="${escapeHtml(block.imageAlt || block.accessibleText)}"><figcaption>${escapeHtml(block.text)}</figcaption></figure>`;
-    }
-    if (block.type === "link") {
-      return `<p><a href="${escapeHtml(block.linkHref ?? "#")}">${escapeHtml(block.accessibleText || block.text)}</a></p>`;
-    }
-    return `<p>${escapeHtml(block.accessibleText || block.text)}</p>`;
-  }).join("\n      ");
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(project.title)} · 无障碍版本</title>
-  <style>
-    :root { font-family: "Noto Sans SC", sans-serif; font-size: 20px; line-height: 1.85; color: #17231f; background: #fffdf7; }
-    body { max-width: 760px; margin: 0 auto; padding: 32px 24px 80px; }
-    a { color: #075c9d; text-decoration-thickness: 2px; text-underline-offset: 3px; }
-    a:focus-visible, [tabindex]:focus-visible { outline: 4px solid #d08a00; outline-offset: 3px; }
-    h1, h2, h3, h4, h5, h6 { line-height: 1.4; margin-top: 1.8em; }
-    figure { margin: 2em 0; } img { max-width: 100%; height: auto; } figcaption { font-size: .86em; color: #46554f; }
-    .skip { position: absolute; left: -9999px; } .skip:focus { position: static; display: inline-block; padding: .5em; background: #fff; }
-  </style>
-</head>
-<body>
-  <a class="skip" href="#main">跳到正文</a>
-  <main id="main" tabindex="-1">
-      ${body}
-  </main>
-</body>
-</html>`;
-}
-
-function download(filename: string, content: string, type = "text/html;charset=utf-8") {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
-function loadProject(): ChapterProject {
-  try {
-    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "") as { schema: number; project: ChapterProject };
-    if (stored.schema === 1 && stored.project?.blocks?.length) return stored.project;
-  } catch {
-    // Fall back to the bundled sample.
-  }
-  return createSeedProject();
-}
-
-const rootElement = document.querySelector<HTMLDivElement>("#app");
-if (!rootElement) throw new Error("Application root was not found");
-const app: HTMLDivElement = rootElement;
-
-let project = loadProject();
+let role: Role = "member";
+let project: ChapterProject = member.project;
 let activeBlockId = project.blocks[0]?.id ?? "";
 let activeIssueId = "";
 let previewMode: "normal" | "assisted" = "normal";
 let selectedVersionId = "";
 let showGlossary = false;
+let showSyncCenter = false;
+let showPublish = false;
+let showBatches = false;
+let showCentralView = false;
+let simulateFailure = false;
 let undoStack: ChapterProject[] = [];
 let redoStack: ChapterProject[] = [];
 let saveTimer = 0;
 
+const rootElement = document.querySelector<HTMLDivElement>("#app");
+if (!rootElement) throw new Error("Application root was not found");
+const app: HTMLDivElement = rootElement;
+
 const activeBlock = () => project.blocks.find((block) => block.id === activeBlockId) ?? project.blocks[0];
-const issues = () => analyze(project);
+const memberBlocks = () => (project as MemberProject).blocks;
+
+/** 阅读预览、检查与导出使用老师挑选后的生效文本。 */
+function viewProject(): ChapterProject {
+  if (role === "central") return project;
+  return {
+    ...project,
+    blocks: memberBlocks().map((block) => {
+      const text = effectiveText(block);
+      return block.type === "image" ? { ...block, accessibleText: text, imageAlt: text } : { ...block, accessibleText: text };
+    }),
+  };
+}
+
+const issues = () => analyze(viewProject());
 
 function saveSoon() {
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ schema: 1, project }));
-  }, 320);
+  saveTimer = window.setTimeout(() => persistStores(central, member), 320);
+}
+
+function toast(message: string, variant: "primary" | "success" | "warning" | "danger" = "primary") {
+  const alert = document.createElement("sl-alert");
+  alert.setAttribute("variant", variant);
+  alert.setAttribute("closable", "");
+  alert.setAttribute("duration", "3800");
+  alert.textContent = message;
+  document.body.appendChild(alert);
+  requestAnimationFrame(() => (alert as HTMLElement & { toast?: () => void }).toast?.());
+}
+
+/** 成员校越权操作统一走这里：拦截、记录、提示。 */
+function blocked(action: string) {
+  member.blockedLog.unshift({ action, at: new Date().toISOString() });
+  persistStores(central, member);
+  document.documentElement.dataset.lastAction = `越权拦截：${action}`;
+  toast(`已拦截越权操作：${action}。通用稿与统一术语由总校维护，成员校请在校本稿上改写。`, "danger");
+  render();
 }
 
 function commit(label: string, update: (draft: ChapterProject) => void, renderAfter = true) {
@@ -428,6 +108,8 @@ function commit(label: string, update: (draft: ChapterProject) => void, renderAf
   const draft = structuredClone(project);
   update(draft);
   draft.updatedAt = new Date().toISOString();
+  if (role === "central") central.project = draft;
+  else member.project = draft as MemberProject;
   project = draft;
   document.documentElement.dataset.lastAction = label;
   saveSoon();
@@ -439,6 +121,8 @@ function undo() {
   if (!previous) return;
   redoStack = [structuredClone(project), ...redoStack].slice(0, 50);
   project = previous;
+  if (role === "central") central.project = previous;
+  else member.project = previous as MemberProject;
   if (!project.blocks.some((block) => block.id === activeBlockId)) activeBlockId = project.blocks[0]?.id ?? "";
   saveSoon();
   render();
@@ -449,36 +133,78 @@ function redo() {
   if (!next) return;
   undoStack = [...undoStack.slice(-49), structuredClone(project)];
   project = next;
+  if (role === "central") central.project = next;
+  else member.project = next as MemberProject;
   saveSoon();
   render();
 }
 
-function updateActiveBlock(update: (block: ContentBlock, draft: ChapterProject) => void, label = "修改无障碍文本", renderAfter = true) {
+function switchRole(next: Role) {
+  if (next === role) return;
+  role = next;
+  project = role === "central" ? central.project : member.project;
+  undoStack = [];
+  redoStack = [];
+  activeBlockId = project.blocks[0]?.id ?? "";
+  activeIssueId = "";
+  selectedVersionId = "";
+  showGlossary = showSyncCenter = showPublish = showBatches = showCentralView = false;
+  document.documentElement.dataset.lastAction = role === "central" ? "已切换到总校（维护通用稿与统一术语）" : "已切换到成员校（在校本稿上改写）";
+  render();
+}
+
+function updateActiveBlock(update: (block: ContentBlock, draft: ChapterProject) => void, label = "修改无障碍文本", renderAfter = true, marksModified = true) {
   commit(label, (draft) => {
     const block = draft.blocks.find((item) => item.id === activeBlockId);
-    if (block) update(block, draft);
+    if (block) {
+      update(block, draft);
+      if (marksModified && role === "member") (block as CollabBlock).localModified = true;
+    }
   }, renderAfter);
 }
 
 function render() {
+  const view = viewProject();
   const list = issues();
   const active = activeBlock();
   const activeIssues = list.filter((issue) => issue.blockId === active.id);
   const approved = project.blocks.filter((block) => block.reviewStatus === "approved").length;
   const version = project.versions.find((item) => item.id === selectedVersionId) ?? project.versions[0];
+  const pending = role === "member" ? pendingBatches(central, member) : [];
+  const dualPending = role === "member" ? memberBlocks().filter(isPendingChoice).length : 0;
+  const unpublished = role === "central" ? pendingOps(central).length : 0;
+  const syncInfo = role === "central"
+    ? `已发布 ${central.batches.length} 批 · 待同步 ${unpublished} 段`
+    : `待接入 ${pending.length} 批 · 双版本待选 ${dualPending} 段`;
+
+  const displayText = (block: ContentBlock) => {
+    const base = role === "member" ? effectiveText(block as CollabBlock) : block.accessibleText;
+    return base || block.text;
+  };
 
   app.innerHTML = `
     <div class="app-shell">
       <header class="topbar">
         <div class="brand"><span>无障碍</span><b>1009</b></div>
+        <div class="role-switch" role="group" aria-label="角色切换">
+          <button class="${role === "central" ? "active" : ""}" data-action="role-central">总校</button>
+          <button class="${role === "member" ? "active" : ""}" data-action="role-member">成员校</button>
+        </div>
         <div class="title-block">
           <input id="project-title" aria-label="教材名称" value="${escapeHtml(project.title)}" />
-          <div class="meta"><span>${escapeHtml(project.subject)}</span><span>${escapeHtml(project.grade)}</span><span class="save-dot">本地自动保存</span></div>
+          <div class="meta"><span>${escapeHtml(project.subject)}</span><span>${escapeHtml(project.grade)}</span><span>${role === "central" ? "通用稿 · 统一术语" : "校本稿"}</span><span class="save-dot">本地自动保存</span></div>
         </div>
         <div class="top-actions">
           <span class="online-pill">${navigator.onLine ? "在线" : "离线可编辑"}</span>
           <sl-button size="small" variant="default" ${undoStack.length ? "" : "disabled"} data-action="undo">撤销</sl-button>
           <sl-button size="small" variant="default" ${redoStack.length ? "" : "disabled"} data-action="redo">重做</sl-button>
+          ${role === "central" ? `
+            <sl-button size="small" variant="warning" data-action="open-publish">发布同步${unpublished ? `（${unpublished}）` : ""}</sl-button>
+            <sl-button size="small" variant="default" data-action="open-batches">批次记录</sl-button>
+          ` : `
+            <sl-button size="small" variant="warning" data-action="open-sync">同步中心${pending.length ? `（${pending.length}）` : ""}</sl-button>
+            <sl-button size="small" variant="default" data-action="open-central-view">查看通用稿</sl-button>
+          `}
           <sl-button size="small" variant="default" data-action="glossary">术语表</sl-button>
           <sl-button size="small" variant="primary" data-action="save-version">保存版本</sl-button>
           <sl-button size="small" variant="success" data-action="export">导出无障碍 HTML</sl-button>
@@ -492,6 +218,7 @@ function render() {
           <span class="error">${list.filter((issue) => issue.severity === "error").length} 必须修复</span>
           <span class="warning">${list.filter((issue) => issue.severity === "warning").length} 建议优化</span>
           <span class="info">${list.filter((issue) => issue.severity === "info").length} 术语提醒</span>
+          <span class="sync-info">${syncInfo}</span>
         </div>
       </div>
 
@@ -500,10 +227,14 @@ function render() {
           <div class="panel-title"><span>章节结构</span><sl-badge>${project.blocks.length} 块</sl-badge></div>
           <div class="block-list">
             ${project.blocks.map((block, index) => {
+              const collab = block as CollabBlock;
               const blockIssues = list.filter((issue) => issue.blockId === block.id);
+              const tags = role === "member"
+                ? `${collab.localModified ? `<span class="origin-tag member">校本</span>` : `<span class="origin-tag">通用</span>`}${isPendingChoice(collab) ? `<span class="origin-tag dual">双版本</span>` : ""}`
+                : "";
               return `<button class="block-item ${block.id === active.id ? "active" : ""}" data-action="select-block" data-block-id="${block.id}">
                 <span class="block-order">${index + 1}</span>
-                <span class="block-copy"><b>${block.type === "heading" ? `H${block.headingLevel}` : blockRole(block)}</b><span>${escapeHtml(block.accessibleText || block.text || "（空）")}</span></span>
+                <span class="block-copy"><b>${block.type === "heading" ? `H${block.headingLevel}` : blockRole(block)}</b><span>${tags}${escapeHtml(displayText(block) || "（空）")}</span></span>
                 <i class="status-${block.reviewStatus}" title="${statusLabel(block.reviewStatus)}"></i>
                 ${blockIssues.length ? `<em>${blockIssues.length}</em>` : ""}
               </button>`;
@@ -516,7 +247,7 @@ function render() {
 
         <main class="editor-panel">
           <div class="editor-head">
-            <div><span class="eyebrow">当前内容块</span><h1>${blockRole(active)}</h1></div>
+            <div><span class="eyebrow">当前内容块 · ${role === "central" ? "通用稿" : (active as CollabBlock).localModified ? "校本稿改动" : "通用稿段落"}</span><h1>${blockRole(active)}</h1></div>
             <div class="review-actions">
               <sl-button size="small" variant="${active.reviewStatus === "approved" ? "success" : "default"}" data-action="approve">${active.reviewStatus === "approved" ? "✓ 已通过" : "审核通过"}</sl-button>
               <sl-button size="small" variant="${active.reviewStatus === "needs-work" ? "danger" : "default"}" data-action="needs-work">需修改</sl-button>
@@ -528,6 +259,8 @@ function render() {
               <div><sl-badge variant="${issue.severity === "error" ? "danger" : issue.severity === "warning" ? "warning" : "primary"}">${severityLabel(issue.severity)}</sl-badge><strong>${escapeHtml(issue.title)}</strong></div>
               <p>${escapeHtml(issue.detail)}</p><small>${escapeHtml(issue.suggestion)}</small>
             </div>`).join("")}</div>` : `<div class="issue-clear">✓ 当前内容块没有新的无障碍问题</div>`}
+
+          ${renderDualCard(active)}
 
           <section class="edit-card source-card">
             <div class="section-heading"><div><span class="eyebrow">原教材</span><h2>${active.type === "image" ? "图片信息" : active.type === "link" ? "链接信息" : "原文"}</h2></div><sl-badge variant="neutral">${active.type}</sl-badge></div>
@@ -542,6 +275,7 @@ function render() {
             ${renderAccessibleEditor(active)}
             <label class="field-label" for="reason-${active.id}">改写原因（每处改写必须记录）</label>
             <sl-textarea id="reason-${active.id}" data-field="reason" rows="2" value="${escapeHtml(active.changeReason)}" placeholder="例如：拆分长句、替换专业表达、补充链接目的"></sl-textarea>
+            ${role === "member" && (active as CollabBlock).localModified && !active.changeReason.trim() ? `<div class="reason-warning">本段属于校本稿改动，请补写改写原因，便于总校与老师审阅。</div>` : ""}
           </section>
 
           <section class="edit-card">
@@ -562,13 +296,13 @@ function render() {
         <aside class="review-panel">
           <section class="preview-card">
             <div class="section-heading"><div><span class="eyebrow">Reader preview</span><h2>阅读预览</h2></div><div class="mode-switch"><button class="${previewMode === "normal" ? "active" : ""}" data-action="preview-normal">普通</button><button class="${previewMode === "assisted" ? "active" : ""}" data-action="preview-assisted">辅助</button></div></div>
-            <div class="reader-preview mode-${previewMode}">${renderPreview()}</div>
+            <div class="reader-preview mode-${previewMode}">${renderPreview(view)}</div>
           </section>
 
           <section class="order-card">
             <div class="section-heading"><div><span class="eyebrow">Screen reader order</span><h2>读屏阅读顺序</h2></div><sl-badge>从上到下</sl-badge></div>
             <ol class="reading-order">
-              ${project.blocks.map((block, index) => `<li class="${block.id === active.id ? "active" : ""}"><b>${index + 1}</b><div><strong>${blockRole(block)}</strong><span>${escapeHtml(block.accessibleText || block.text || "（无内容）")}</span></div></li>`).join("")}
+              ${view.blocks.map((block, index) => `<li class="${block.id === active.id ? "active" : ""}"><b>${index + 1}</b><div><strong>${blockRole(block)}</strong><span>${escapeHtml(block.accessibleText || block.text || "（无内容）")}</span></div></li>`).join("")}
             </ol>
           </section>
 
@@ -589,16 +323,29 @@ function render() {
         </aside>
       </div>
 
-      <footer class="statusbar"><span>最近操作：${escapeHtml(document.documentElement.dataset.lastAction || "示例章节已载入")}</span><span>${project.blocks.length} 个内容块 · ${list.length} 个待处理问题</span></footer>
+      <footer class="statusbar"><span>最近操作：${escapeHtml(document.documentElement.dataset.lastAction || "示例章节已载入")}</span><span>${role === "central" ? "总校" : "成员校"} · ${project.blocks.length} 个内容块 · ${list.length} 个待处理问题 · ${syncInfo}</span></footer>
     </div>
 
-    <sl-dialog label="全书术语表" ${showGlossary ? "open" : ""} data-dialog="glossary">
-      <div class="glossary-editor">
-        ${project.glossary.map((term) => `<div class="term-row"><div><b>${escapeHtml(term.source)}</b><sl-input size="small" value="${escapeHtml(term.preferred)}" data-term-id="${term.id}"></sl-input><small>${escapeHtml(term.note)}</small></div><sl-button size="small" variant="danger" outline data-action="remove-term" data-term-id="${term.id}">删除</sl-button></div>`).join("")}
-      </div>
-      <div class="term-add"><sl-input id="new-term-source" placeholder="原文术语"></sl-input><sl-input id="new-term-preferred" placeholder="统一表达"></sl-input><sl-button variant="primary" data-action="add-term">添加术语</sl-button></div>
+    <sl-dialog label="${role === "central" ? "统一术语表（总校维护）" : "统一术语表（总校发布 · 成员校只读）"}" ${showGlossary ? "open" : ""} data-dialog="glossary">
+      ${role === "central" ? `
+        <div class="glossary-editor">
+          ${project.glossary.map((term) => `<div class="term-row"><div><b>${escapeHtml(term.source)}</b><sl-input size="small" value="${escapeHtml(term.preferred)}" data-term-id="${term.id}"></sl-input><small>${escapeHtml(term.note)}</small></div><sl-button size="small" variant="danger" outline data-action="remove-term" data-term-id="${term.id}">删除</sl-button></div>`).join("")}
+        </div>
+        <div class="term-add"><sl-input id="new-term-source" placeholder="原文术语"></sl-input><sl-input id="new-term-preferred" placeholder="统一表达"></sl-input><sl-button variant="primary" data-action="add-term">添加术语</sl-button></div>
+      ` : `
+        <p class="batch-hint">统一术语由总校维护并随同步批次下发，成员校不能修改；如需调整请在校本稿批注中说明。</p>
+        <div class="glossary-editor">
+          ${project.glossary.map((term) => `<div class="readonly-term"><b>${escapeHtml(term.source)}</b> → ${escapeHtml(term.preferred)}<br><small>${escapeHtml(term.note)}</small></div>`).join("")}
+        </div>
+        <div class="term-add"><sl-input id="new-term-source" placeholder="原文术语"></sl-input><sl-input id="new-term-preferred" placeholder="统一表达"></sl-input><sl-button variant="danger" outline data-action="add-term">添加术语</sl-button></div>
+      `}
       <sl-button slot="footer" variant="primary" data-action="close-glossary">完成</sl-button>
-    </sl-dialog>`;
+    </sl-dialog>
+
+    ${renderSyncCenterDialog()}
+    ${renderPublishDialog()}
+    ${renderBatchesDialog()}
+    ${renderCentralViewDialog()}`;
 
   wireLiveFields();
 }
@@ -619,14 +366,46 @@ function renderSourceEditor(block: ContentBlock) {
 }
 
 function renderAccessibleEditor(block: ContentBlock) {
+  const value = role === "member" ? effectiveText(block as CollabBlock) : block.accessibleText;
   if (block.type === "image") {
-    return `<sl-textarea id="accessible-${block.id}" data-field="accessible" rows="3" label="图片替代文本" value="${escapeHtml(block.imageAlt || block.accessibleText)}" help-text="读屏软件会朗读这里的内容。"></sl-textarea>`;
+    return `<sl-textarea id="accessible-${block.id}" data-field="accessible" rows="3" label="图片替代文本" value="${escapeHtml(value || block.imageAlt || "")}" help-text="读屏软件会朗读这里的内容。"></sl-textarea>`;
   }
-  return `<sl-textarea id="accessible-${block.id}" data-field="accessible" rows="6" value="${escapeHtml(block.accessibleText)}"></sl-textarea>`;
+  return `<sl-textarea id="accessible-${block.id}" data-field="accessible" rows="6" value="${escapeHtml(value)}"></sl-textarea>`;
 }
 
-function renderPreview() {
-  return project.blocks.map((block, index) => {
+/** 成员校改过的段落遇到通用稿更新：两版并排，等老师挑。 */
+function renderDualCard(block: ContentBlock) {
+  if (role !== "member") return "";
+  const collab = block as CollabBlock;
+  if (!isDualVersion(collab) || !collab.centralVersion) return "";
+  const centralVersion = collab.centralVersion;
+  if (collab.conflictChoice) {
+    return `<section class="edit-card dual-card">
+      <div class="dual-resolved"><span>✓ 已采用${collab.conflictChoice === "central" ? "通用稿" : "校本稿"}版本；另一版保留在导出的两边结论中。</span><sl-button size="small" variant="text" data-action="rechoose">重新选择</sl-button></div>
+    </section>`;
+  }
+  return `<section class="edit-card dual-card">
+    <div class="section-heading"><div><span class="eyebrow">Sync conflict</span><h2>本段通用稿已更新，校本稿也有改写</h2></div><sl-badge variant="danger" pill>双版本待选</sl-badge></div>
+    <p class="dual-hint">成员校改过的段落不会被通用稿覆盖。请老师比较后挑选，两个版本都会写入导出结论。</p>
+    <div class="dual-grid">
+      <div class="dual-col">
+        <header><b>校本稿版本</b><span>成员校改写</span></header>
+        <p>${escapeHtml(collab.accessibleText || "（空）")}</p>
+        <small>改写原因：${escapeHtml(collab.changeReason || "未填写")}</small>
+        <sl-button size="small" variant="primary" data-action="choose-member">采用校本稿</sl-button>
+      </div>
+      <div class="dual-col central">
+        <header><b>通用稿版本</b><span>批次 #${centralVersion.seq}</span></header>
+        <p>${escapeHtml(centralVersion.accessibleText || "（空）")}</p>
+        <small>总校说明：${escapeHtml(centralVersion.changeReason || "未填写")}</small>
+        <sl-button size="small" variant="default" data-action="choose-central">采用通用稿</sl-button>
+      </div>
+    </div>
+  </section>`;
+}
+
+function renderPreview(view: ChapterProject) {
+  return view.blocks.map((block, index) => {
     const content = escapeHtml(block.accessibleText || block.text);
     if (block.type === "heading") {
       const tag = `h${Math.min(6, Math.max(1, block.headingLevel ?? 2))}`;
@@ -648,6 +427,221 @@ function renderVersionDiff(version: VersionSnapshot, current: ContentBlock) {
   return `<div class="diff-column"><span>旧版</span><p>${escapeHtml(oldBlock.accessibleText || oldBlock.text)}</p></div><div class="diff-column current"><span>当前</span><p>${escapeHtml(current.accessibleText || current.text)}</p></div>`;
 }
 
+function renderMigration(migration: MigrationReport) {
+  const memberCount = migration.entries.filter((entry) => entry.assigned === "member").length;
+  return `<div class="migration-report">
+    <header><b>旧数据回填报告</b><span>${new Date(migration.ranAt).toLocaleString()}</span></header>
+    <p>旧稿没有归属信息，已按现有改写来源回填：${memberCount} 段归为校本稿改动，${migration.entries.length - memberCount} 段归为通用稿。</p>
+    <ul>${migration.entries.map((entry) => {
+      const index = member.project.blocks.findIndex((block) => block.id === entry.blockId) + 1;
+      return `<li>段 ${index || "—"} → ${entry.assigned === "member" ? "校本稿" : "通用稿"}：${escapeHtml(entry.basis)}</li>`;
+    }).join("")}</ul>
+    <sl-button size="small" variant="primary" outline data-action="ack-migration">知道了</sl-button>
+  </div>`;
+}
+
+function renderOpRow(op: OpReceipt) {
+  const index = member.project.blocks.findIndex((block) => block.id === op.blockId) + 1;
+  const block = member.project.blocks.find((item) => item.id === op.blockId);
+  const title = (block ? block.accessibleText || block.text : op.blockId).slice(0, 26);
+  return `<div class="op-row ${op.status}"><span class="chip">${opStatusLabel(op.status)}</span><span>段 ${index || "—"} · ${escapeHtml(title)}</span><small>${escapeHtml(op.message)}</small></div>`;
+}
+
+function renderBatchCard(batch: SyncBatch, actionable: boolean) {
+  const receipt = receiptOf(member, batch.id);
+  const failedCount = receipt?.ops.filter((op) => op.status === "failed").length ?? 0;
+  return `<div class="batch-card">
+    <header><b>批次 #${batch.seq} · ${escapeHtml(batch.note)}</b><span>${new Date(batch.createdAt).toLocaleString()} · ${batch.ops.length} 段${batch.resentAt ? " · 总校已重发" : ""}</span></header>
+    ${receipt?.ops.length ? `<div class="op-list">${receipt.ops.map(renderOpRow).join("")}</div>` : `<p class="batch-hint">含 ${batch.ops.length} 段通用稿更新与统一术语快照。成员校改过的段落会保留双版本，不会被覆盖。</p>`}
+    <div class="batch-actions">
+      ${actionable && !receipt?.done ? `<sl-button size="small" variant="primary" data-action="receive-batch" data-batch-id="${batch.id}">${receipt ? "继续接入" : "接入本批"}</sl-button>` : ""}
+      ${!actionable ? `<span class="wait-note">等待上一批接入完成</span>` : ""}
+      ${actionable && failedCount ? `
+        <sl-button size="small" variant="warning" data-action="retry-one" data-batch-id="${batch.id}">逐段重试（剩 ${failedCount} 段）</sl-button>
+        <sl-button size="small" variant="default" data-action="retry-all" data-batch-id="${batch.id}">全部重试</sl-button>
+      ` : ""}
+    </div>
+  </div>`;
+}
+
+function renderDoneReceipt(receipt: BatchReceipt) {
+  return `<div class="batch-card done">
+    <header><b>批次 #${receipt.seq} · ${escapeHtml(receipt.note)}</b><span>已完成接入 · 同一批重发不会重复应用</span></header>
+    <div class="batch-actions"><sl-button size="small" variant="text" data-action="resend-test" data-batch-id="${receipt.batchId}">重发测试</sl-button></div>
+  </div>`;
+}
+
+function renderSyncCenterDialog() {
+  if (role !== "member") return "";
+  const pending = pendingBatches(central, member);
+  const doneReceipts = member.receipts.filter((receipt) => receipt.done);
+  return `<sl-dialog label="同步中心 · 成员校" ${showSyncCenter ? "open" : ""} style="--width: 64rem;">
+    <div class="sync-layout">
+      ${member.migration && !member.migration.acknowledged ? renderMigration(member.migration) : ""}
+      <div class="sync-summary">
+        <span class="sync-stat">待接入 ${pending.length} 批</span>
+        <span class="sync-stat">双版本待选 ${memberBlocks().filter(isPendingChoice).length} 段</span>
+        <span class="sync-stat">已接入 ${doneReceipts.length} 批</span>
+      </div>
+      <div class="sync-toolbar"><sl-switch id="simulate-failure" ${simulateFailure ? "checked" : ""}>模拟同步中断（每次仅接入 1 段，用于演示逐段重试）</sl-switch></div>
+      <h3>待接入批次</h3>
+      ${pending.length ? pending.map((batch, index) => renderBatchCard(batch, index === 0)).join("") : `<div class="empty-note">通用稿暂无待接入的更新。</div>`}
+      <h3>已接入批次</h3>
+      ${doneReceipts.length ? doneReceipts.map(renderDoneReceipt).join("") : `<div class="empty-note">还没有完成接入的批次。</div>`}
+      <h3>越权拦截记录（${member.blockedLog.length}）</h3>
+      ${member.blockedLog.length ? `<ul class="blocked-list">${member.blockedLog.slice(0, 5).map((item) => `<li>${new Date(item.at).toLocaleString()} · ${escapeHtml(item.action)}</li>`).join("")}</ul>` : `<div class="empty-note">成员校直接修改通用稿或统一术语的尝试会被拦截并记录在这里。</div>`}
+    </div>
+    <sl-button slot="footer" variant="primary" data-action="close-sync">完成</sl-button>
+  </sl-dialog>`;
+}
+
+function renderPublishDialog() {
+  if (role !== "central") return "";
+  const ops = pendingOps(central);
+  const glossaryDiff = glossaryChanged(central);
+  const hasChanges = ops.length > 0 || glossaryDiff;
+  return `<sl-dialog label="发布同步批次 · 总校" ${showPublish ? "open" : ""} style="--width: 46rem;">
+    ${hasChanges ? `
+      <p class="batch-hint">本次将向成员校同步 ${ops.length} 段改动${glossaryDiff ? "与统一术语更新" : ""}。成员校已改写的段落会保留双版本，不会被覆盖。</p>
+      <div class="op-list">${ops.map((op) => {
+        const index = central.project.blocks.findIndex((block) => block.id === op.blockId) + 1;
+        return `<div class="op-row pending"><span class="chip">待同步</span><span>段 ${index} · ${escapeHtml((op.accessibleText || op.text).slice(0, 30))}</span><small>${escapeHtml(op.changeReason || "—")}</small></div>`;
+      }).join("")}</div>
+      <sl-input id="publish-note" label="批次说明" placeholder="例如：统一第三章术语并修订长句"></sl-input>
+    ` : `<div class="empty-note">通用稿相对上一批没有新改动。</div>`}
+    <sl-button slot="footer" variant="primary" data-action="do-publish" ${hasChanges ? "" : "disabled"}>发布批次</sl-button>
+    <sl-button slot="footer" variant="default" data-action="close-publish">取消</sl-button>
+  </sl-dialog>`;
+}
+
+function renderBatchesDialog() {
+  if (role !== "central") return "";
+  return `<sl-dialog label="批次记录 · 总校" ${showBatches ? "open" : ""} style="--width: 46rem;">
+    ${central.batches.length ? central.batches.map((batch) => `<div class="batch-card">
+      <header><b>批次 #${batch.seq} · ${escapeHtml(batch.note)}</b><span>${new Date(batch.createdAt).toLocaleString()} · ${batch.ops.length} 段</span></header>
+      <div class="batch-actions">
+        <sl-button size="small" variant="text" data-action="resend-batch" data-batch-id="${batch.id}">重新推送</sl-button>
+        ${batch.resentAt ? `<span class="wait-note">已于 ${new Date(batch.resentAt).toLocaleTimeString()} 重发；成员校已接入的部分不会重复应用</span>` : ""}
+      </div>
+    </div>`).join("") : `<div class="empty-note">还没有发布过同步批次。编辑通用稿或统一术语后，点“发布同步”。</div>`}
+    <sl-button slot="footer" variant="primary" data-action="close-batches">完成</sl-button>
+  </sl-dialog>`;
+}
+
+function renderCentralViewDialog() {
+  if (role !== "member") return "";
+  return `<sl-dialog label="总校通用稿（只读）" ${showCentralView ? "open" : ""} style="--width: 56rem;">
+    <p class="batch-hint">通用稿与统一术语由总校维护。成员校如需调整，请在校本稿上改写并写明原因；直接修改会被拦截。</p>
+    <div class="central-view-list">${central.project.blocks.map((block, index) => `<div class="central-view-block"><b>${index + 1} · ${blockRole(block)}</b><p>${escapeHtml(block.accessibleText || block.text)}</p></div>`).join("")}</div>
+    <h3 class="view-subhead">统一术语</h3>
+    <ul class="term-view">${central.project.glossary.map((term) => `<li><b>${escapeHtml(term.source)}</b> → ${escapeHtml(term.preferred)}（${escapeHtml(term.note)}）</li>`).join("")}</ul>
+    <sl-button slot="footer" variant="danger" outline data-action="attempt-central-edit">尝试直接修改通用稿</sl-button>
+    <sl-button slot="footer" variant="primary" data-action="close-central-view">关闭</sl-button>
+  </sl-dialog>`;
+}
+
+function renderExportBlocks(blocks: ContentBlock[]) {
+  return blocks.map((block) => {
+    if (block.type === "heading") {
+      const level = Math.min(6, Math.max(1, block.headingLevel ?? 2));
+      return `<h${level}>${escapeHtml(block.accessibleText || block.text)}</h${level}>`;
+    }
+    if (block.type === "image") {
+      return `<figure><img src="${escapeHtml(block.imageSrc ?? "")}" alt="${escapeHtml(block.imageAlt || block.accessibleText)}"><figcaption>${escapeHtml(block.text)}</figcaption></figure>`;
+    }
+    if (block.type === "link") {
+      return `<p><a href="${escapeHtml(block.linkHref ?? "#")}">${escapeHtml(block.accessibleText || block.text)}</a></p>`;
+    }
+    return `<p>${escapeHtml(block.accessibleText || block.text)}</p>`;
+  }).join("\n      ");
+}
+
+function buildExportDocument(project: ChapterProject, appendix: string) {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(project.title)} · 无障碍版本</title>
+  <style>
+    :root { font-family: "Noto Sans SC", sans-serif; font-size: 20px; line-height: 1.85; color: #17231f; background: #fffdf7; }
+    body { max-width: 760px; margin: 0 auto; padding: 32px 24px 80px; }
+    a { color: #075c9d; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+    a:focus-visible, [tabindex]:focus-visible { outline: 4px solid #d08a00; outline-offset: 3px; }
+    h1, h2, h3, h4, h5, h6 { line-height: 1.4; margin-top: 1.8em; }
+    figure { margin: 2em 0; } img { max-width: 100%; height: auto; } figcaption { font-size: .86em; color: #46554f; }
+    .skip { position: absolute; left: -9999px; } .skip:focus { position: static; display: inline-block; padding: .5em; background: #fff; }
+    .appendix { margin-top: 3em; border-top: 3px solid #1f4a3e; padding-top: .5em; font-size: .8em; }
+    .appendix table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+    .appendix th, .appendix td { border: 1px solid #c9d2cc; padding: .5em .6em; text-align: left; vertical-align: top; }
+    .appendix th { background: #eef4f0; }
+    .appendix caption { text-align: left; font-weight: 700; margin-bottom: .4em; }
+    .appendix small { color: #5d6a64; }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到正文</a>
+  <main id="main" tabindex="-1">
+      ${renderExportBlocks(project.blocks)}
+      ${appendix}
+  </main>
+</body>
+</html>`;
+}
+
+function exportCentralHtml(store: CentralStore) {
+  const terms = store.project.glossary.map((term) => `<li><b>${escapeHtml(term.source)}</b> → ${escapeHtml(term.preferred)}（${escapeHtml(term.note)}）</li>`).join("");
+  return buildExportDocument(store.project, `<section class="appendix" aria-label="总校通用稿说明">
+        <h2>总校通用稿 · 统一术语</h2>
+        <p>本文件由总校维护。统一术语随同步批次下发，成员校在校本稿上接入。</p>
+        <ul>${terms}</ul>
+        <p>已发布同步批次 ${store.batches.length} 批。</p>
+      </section>`);
+}
+
+/** 成员校阅读版导出：正文用老师挑选后的生效文本，附录带上两边结论。 */
+function exportMemberHtml(store: MemberStore) {
+  const project = store.project;
+  const view: ChapterProject = {
+    ...project,
+    blocks: project.blocks.map((block) => {
+      const text = effectiveText(block);
+      return block.type === "image" ? { ...block, accessibleText: text, imageAlt: text } : { ...block, accessibleText: text };
+    }),
+  };
+  const modified = project.blocks.filter((block) => block.localModified);
+  const duals = modified.filter(isDualVersion);
+  const undecided = duals.filter(isPendingChoice);
+  const approved = project.blocks.filter((block) => block.reviewStatus === "approved").length;
+  const doneReceipts = store.receipts.filter((receipt) => receipt.done);
+  const rows = modified.map((block) => {
+    const index = project.blocks.findIndex((item) => item.id === block.id) + 1;
+    const choice = block.conflictChoice === "central" ? "通用稿" : block.conflictChoice === "member" ? "校本稿" : isDualVersion(block) ? "待定（保留双版本）" : "校本稿";
+    const centralCell = block.centralVersion
+      ? `${escapeHtml(block.centralVersion.accessibleText)}<br><small>批次 #${block.centralVersion.seq} · ${escapeHtml(block.centralVersion.changeReason || "总校未填写说明")}</small>`
+      : "通用稿暂无本段更新";
+    return `<tr><td>${index}</td><td>${escapeHtml(block.accessibleText || block.text)}<br><small>改写原因：${escapeHtml(block.changeReason || "未填写")}</small></td><td>${centralCell}</td><td>${choice}</td></tr>`;
+  }).join("");
+  const terms = project.glossary.map((term) => `<li><b>${escapeHtml(term.source)}</b> → ${escapeHtml(term.preferred)}（${escapeHtml(term.note)}）</li>`).join("");
+  const batches = doneReceipts.map((receipt) => `<li>批次 #${receipt.seq} · ${escapeHtml(receipt.note)}</li>`).join("");
+  return buildExportDocument(view, `<section class="appendix" aria-label="两边结论">
+        <h2>同步结论（总校通用稿 × 成员校校本稿）</h2>
+        <ul>
+          <li>全章 ${project.blocks.length} 段，成员校校本稿改动 ${modified.length} 段，审核通过 ${approved} 段。</li>
+          <li>双版本 ${duals.length} 段，其中待老师挑选 ${undecided.length} 段。</li>
+          <li>已接入总校同步批次 ${doneReceipts.length} 批。</li>
+        </ul>
+        ${modified.length ? `<table>
+          <caption>校本稿改动段落的两边结论</caption>
+          <thead><tr><th scope="col">段落</th><th scope="col">成员校校本稿结论</th><th scope="col">总校通用稿结论</th><th scope="col">老师采用</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>` : `<p>成员校本章尚未改写段落。</p>`}
+        <h3>统一术语（总校发布）</h3>
+        <ul>${terms}</ul>
+        ${batches ? `<h3>已接入批次</h3><ul>${batches}</ul>` : ""}
+      </section>`);
+}
+
 function wireLiveFields() {
   app.querySelectorAll<HTMLElement>("sl-input[data-field], sl-textarea[data-field], sl-select[data-field]").forEach((element) => {
     element.addEventListener("sl-input", () => {
@@ -658,10 +652,12 @@ function wireLiveFields() {
         if (field === "accessible") {
           block.accessibleText = value;
           if (block.type === "image") block.imageAlt = value;
+          if (role === "member") (block as CollabBlock).conflictChoice = undefined;
         }
         if (field === "image-alt") {
           block.imageAlt = value;
           block.accessibleText = value;
+          if (role === "member") (block as CollabBlock).conflictChoice = undefined;
         }
         if (field === "link-href") block.linkHref = value;
         if (field === "reason") block.changeReason = value;
@@ -678,6 +674,8 @@ app.addEventListener("click", (event) => {
   const action = target.dataset.action;
   if (action === "undo") undo();
   if (action === "redo") redo();
+  if (action === "role-central") switchRole("central");
+  if (action === "role-member") switchRole("member");
   if (action === "select-block") {
     activeBlockId = target.dataset.blockId ?? activeBlockId;
     activeIssueId = "";
@@ -699,15 +697,16 @@ app.addEventListener("click", (event) => {
       current.accessibleText = suggestion;
       current.changeReason ||= "拆分长句并替换复杂表达，保留原有知识信息。";
       current.reviewStatus = "pending";
+      if (role === "member") (current as CollabBlock).conflictChoice = undefined;
     }, "生成易读版本");
   }
-  if (action === "approve") updateActiveBlock((block) => { block.reviewStatus = "approved"; }, "审核通过");
-  if (action === "needs-work") updateActiveBlock((block) => { block.reviewStatus = "needs-work"; }, "标记需修改");
+  if (action === "approve") updateActiveBlock((block) => { block.reviewStatus = "approved"; }, "审核通过", true, false);
+  if (action === "needs-work") updateActiveBlock((block) => { block.reviewStatus = "needs-work"; }, "标记需修改", true, false);
   if (action === "add-comment") {
     const input = app.querySelector<HTMLElement & { value: string }>("#new-comment");
     const body = input?.value.trim();
     if (body) updateActiveBlock((block) => {
-      block.comments.unshift({ id: uid("comment"), author: "当前编辑", body, createdAt: new Date().toISOString(), resolved: false, replies: [] });
+      block.comments.unshift({ id: uid("comment"), author: role === "central" ? "总校编辑" : "成员校编辑", body, createdAt: new Date().toISOString(), resolved: false, replies: [] });
     }, "添加批注");
   }
   if (action === "reply") {
@@ -715,7 +714,7 @@ app.addEventListener("click", (event) => {
     const input = app.querySelector<HTMLElement & { value: string }>(`#reply-${CSS.escape(commentId)}`);
     const body = input?.value.trim();
     if (body) updateActiveBlock((block) => {
-      block.comments.find((comment) => comment.id === commentId)?.replies.push({ id: uid("reply"), author: "当前编辑", body, createdAt: new Date().toISOString() });
+      block.comments.find((comment) => comment.id === commentId)?.replies.push({ id: uid("reply"), author: role === "central" ? "总校编辑" : "成员校编辑", body, createdAt: new Date().toISOString() });
     }, "回复批注");
   }
   if (action === "resolve-comment") {
@@ -723,20 +722,29 @@ app.addEventListener("click", (event) => {
     updateActiveBlock((block) => {
       const comment = block.comments.find((item) => item.id === commentId);
       if (comment) comment.resolved = !comment.resolved;
-    }, "更新批注状态");
+    }, "更新批注状态", true, false);
+  }
+  if (action === "choose-member" || action === "choose-central" || action === "rechoose") {
+    const choice = action === "choose-member" ? "member" as const : action === "choose-central" ? "central" as const : undefined;
+    commit("挑选双版本", (draft) => {
+      const block = draft.blocks.find((item) => item.id === activeBlockId) as CollabBlock | undefined;
+      if (block) block.conflictChoice = choice;
+    });
   }
   if (action === "preview-normal") { previewMode = "normal"; render(); }
   if (action === "preview-assisted") { previewMode = "assisted"; render(); }
   if (action === "glossary") { showGlossary = true; render(); }
   if (action === "close-glossary") { showGlossary = false; render(); }
   if (action === "add-term") {
+    if (role !== "central") { blocked("修改统一术语"); return; }
     const source = app.querySelector<HTMLElement & { value: string }>("#new-term-source");
     const preferred = app.querySelector<HTMLElement & { value: string }>("#new-term-preferred");
     if (source?.value.trim() && preferred?.value.trim()) {
-      commit("添加术语", (draft) => { draft.glossary.push({ id: uid("term"), source: source.value.trim(), preferred: preferred.value.trim(), note: "编辑新增术语" }); });
+      commit("添加术语", (draft) => { draft.glossary.push({ id: uid("term"), source: source.value.trim(), preferred: preferred.value.trim(), note: "总校新增术语" }); });
     }
   }
   if (action === "remove-term") {
+    if (role !== "central") { blocked("删除统一术语"); return; }
     const termId = target.dataset.termId;
     commit("删除术语", (draft) => { draft.glossary = draft.glossary.filter((term) => term.id !== termId); });
   }
@@ -753,16 +761,77 @@ app.addEventListener("click", (event) => {
     commit("全部审核通过", (draft) => { draft.blocks.forEach((block) => { block.reviewStatus = "approved"; }); });
   }
   if (action === "export") {
-    download(`${project.title}-无障碍版.html`, exportHtml(project));
-    document.documentElement.dataset.lastAction = "已导出无障碍 HTML";
+    if (role === "central") {
+      download(`${central.project.title}-通用稿.html`, exportCentralHtml(central));
+      document.documentElement.dataset.lastAction = "已导出总校通用稿 HTML";
+    } else {
+      download(`${member.project.title}-校本阅读版.html`, exportMemberHtml(member));
+      document.documentElement.dataset.lastAction = "已导出校本阅读版 HTML（含两边结论）";
+    }
     render();
   }
   if (action === "import") app.querySelector<HTMLInputElement>("#chapter-file")?.click();
+  if (action === "open-sync") { showSyncCenter = true; render(); }
+  if (action === "close-sync") { showSyncCenter = false; render(); }
+  if (action === "open-publish") { showPublish = true; render(); }
+  if (action === "close-publish") { showPublish = false; render(); }
+  if (action === "open-batches") { showBatches = true; render(); }
+  if (action === "close-batches") { showBatches = false; render(); }
+  if (action === "open-central-view") { showCentralView = true; render(); }
+  if (action === "close-central-view") { showCentralView = false; render(); }
+  if (action === "ack-migration") {
+    if (member.migration) member.migration.acknowledged = true;
+    saveSoon();
+    render();
+  }
+  if (action === "do-publish") {
+    const note = app.querySelector<HTMLElement & { value: string }>("#publish-note")?.value ?? "";
+    const batch = publishBatch(central, note);
+    if (batch) {
+      toast(`已发布批次 #${batch.seq}：${batch.ops.length} 段改动，成员校可在同步中心接入`, "success");
+      showPublish = false;
+    } else {
+      toast("通用稿相对上一批没有新改动", "primary");
+    }
+    saveSoon();
+    render();
+  }
+  if (action === "resend-batch") {
+    const batch = central.batches.find((item) => item.id === target.dataset.batchId);
+    if (batch) {
+      batch.resentAt = new Date().toISOString();
+      toast(`批次 #${batch.seq} 已重新推送；成员校已接入的部分不会重复应用`, "primary");
+      saveSoon();
+      render();
+    }
+  }
+  if (action === "receive-batch" || action === "retry-one" || action === "retry-all" || action === "resend-test") {
+    const batch = central.batches.find((item) => item.id === target.dataset.batchId);
+    if (batch) {
+      const limit = action === "retry-all" ? Number.POSITIVE_INFINITY
+        : action === "retry-one" ? 1
+        : action === "resend-test" ? Number.POSITIVE_INFINITY
+        : simulateFailure ? 1 : Number.POSITIVE_INFINITY;
+      const result = receiveBatch(member, batch, limit);
+      if (result === "duplicate") toast(`批次 #${batch.seq} 已完成接入，同一批重发不会重复应用`, "warning");
+      else if (result === "done") toast(`批次 #${batch.seq} 已全部接入`, "success");
+      else toast(`批次 #${batch.seq} 部分段落未接上，可在成员校这边逐段重试`, "warning");
+      if (!project.blocks.some((block) => block.id === activeBlockId)) activeBlockId = project.blocks[0]?.id ?? "";
+      saveSoon();
+      render();
+    }
+  }
+  if (action === "attempt-central-edit") blocked("直接修改通用稿");
 });
 
 app.addEventListener("sl-change", (event) => {
   const element = event.target as HTMLElement;
   if (element.id === "chapter-file") return;
+  if (element.id === "simulate-failure") {
+    simulateFailure = (element as HTMLElement & { checked: boolean }).checked;
+    render();
+    return;
+  }
   if (element.id.startsWith("heading-level-")) {
     const level = Number((element as HTMLElement & { value: string }).value);
     updateActiveBlock((block) => { block.headingLevel = level; block.reviewStatus = "pending"; }, "修改标题层级");
@@ -772,6 +841,7 @@ app.addEventListener("sl-change", (event) => {
     render();
   }
   if (element.matches("[data-term-id]")) {
+    if (role !== "central") { blocked("修改统一术语"); return; }
     const termId = element.dataset.termId;
     const value = (element as HTMLElement & { value: string }).value;
     commit("修改术语表", (draft) => { const term = draft.glossary.find((item) => item.id === termId); if (term) term.preferred = value; });
@@ -783,7 +853,10 @@ app.addEventListener("change", (event) => {
   if (input.id !== "chapter-file" || !input.files?.[0]) return;
   void input.files[0].text().then((text) => {
     commit("导入章节文本", (draft) => {
-      draft.blocks = parseImportedChapter(text);
+      const parsed = parseImportedChapter(text);
+      draft.blocks = role === "member"
+        ? parsed.map((block) => ({ ...block, origin: "member" as const, localModified: true }))
+        : parsed;
       activeBlockId = draft.blocks[0]?.id ?? "";
       activeIssueId = "";
     });
